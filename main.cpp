@@ -3,11 +3,12 @@
 #include <string>
 #include <fstream>
 #include <iomanip>
-#include <thread>
-#include <chrono>
 #include <conio.h>
 
+std::string programFileName;
+
 using lancelot_word = unsigned short int;
+
 class ProgramCounter
 {
 private:
@@ -42,7 +43,7 @@ class GeneralRegister
 {
 private:
     lancelot_word &bus;
-    lancelot_word data;
+    short int data;
 
 public:
     GeneralRegister(lancelot_word &bus) : bus(bus)
@@ -151,44 +152,78 @@ private:
     lancelot_word &bus;
     lancelot_word &marAlwaysOut;
 
-    int calcOffset(lancelot_word address)
+    const std::string ramTemplateFileName = "ram_template";
+    const std::string ramFileName = "ram";
+
+    void loadProgram(){
+        std::ifstream programFile(programFileName,std::ios::binary);
+        if (!programFile.is_open())
+        {
+            std::cerr << "Error opening program file!" << std::endl;
+            return;
+        }
+        int currentAddress = 0;
+        while(!programFile.eof()){
+            char buffer[2];
+            programFile.read(buffer, 2);
+            std::string hexData;
+            std::stringstream ss;
+            ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (unsigned int)(unsigned char)buffer[1];
+            ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (unsigned int)(unsigned char)buffer[0];
+            hexData = ss.str();
+            if (ramFile->is_open())
+            {
+                ramFile->seekp(calcCursorOffset(currentAddress), std::ios::beg);
+                ramFile->write(hexData.c_str(), 4);
+                currentAddress++;
+            }
+            else
+            {
+                std::cerr << "Error writing to RAM file!" << std::endl;
+                return;
+            }
+        }
+    }
+
+    int calcCursorOffset(lancelot_word address)
     {
         unsigned int row = address / 16;
         unsigned int column = address % 16;
-        unsigned int offset = 26 + row * 87 + 6 + column * 5;
+        unsigned int offset = row * 87 + 6 + column * 5;
         return offset;
     }
 
 public:
     RAM(lancelot_word &bus, lancelot_word &marAlwaysOut) : bus(bus), marAlwaysOut(marAlwaysOut)
     {
-        ramFile = new std::fstream("ram", std::ios::in | std::ios::out);
-        std::fstream *tempRamFile = new std::fstream("temp_ram", std::ios::in | std::ios::out | std::ios::trunc);
-        if (!tempRamFile->is_open())
+        std::ifstream templateRamFile(ramTemplateFileName);
+        std::ofstream ramFile(ramFileName);
+        if (!ramFile.is_open())
         {
-            std::cerr << "Error creating temporary RAM file!" << std::endl;
+            std::cerr << "Error creating RAM file!" << std::endl;
         }
         else
         {
 
-            ramFile->seekg(0, std::ios::beg);
-            tempRamFile->seekp(0, std::ios::beg);
-            *tempRamFile << ramFile->rdbuf();
-            tempRamFile->flush();
-            delete ramFile;
-            tempRamFile->close();
+            templateRamFile.seekg(0, std::ios::beg);
+            ramFile.seekp(0, std::ios::beg);
+            ramFile << templateRamFile.rdbuf();
+            ramFile.flush();
+            ramFile.close();
         }
-        ramFile = new std::fstream("temp_ram", std::ios::in | std::ios::out);
-        if (!ramFile->is_open())
+        this->ramFile = new std::fstream();
+        this->ramFile->open(ramFileName, std::ios::in | std::ios::out);
+        if (!this->ramFile->is_open())
         {
             std::cerr << "Error opening RAM file!" << std::endl;
         }
+        loadProgram();
     }
     void read()
     {
 
         lancelot_word address = marAlwaysOut;
-        ramFile->seekg(calcOffset(address), std::ios::beg);
+        ramFile->seekg(calcCursorOffset(address), std::ios::beg);
         char buffer[5] = {0};
         ramFile->read(buffer, 4);
         std::string data(buffer);
@@ -199,7 +234,7 @@ public:
     {
         ramFile->clear();
         lancelot_word address = marAlwaysOut;
-        ramFile->seekp(calcOffset(address), std::ios::beg);
+        ramFile->seekp(calcCursorOffset(address), std::ios::beg);
         std::stringstream ss;
         ss << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << bus;
         std::string hexData = ss.str();
@@ -209,7 +244,7 @@ public:
     void reset()
     {
         ramFile->close();
-        ramFile->open("temp_ram", std::ios::in | std::ios::out);
+        ramFile->open(ramFileName, std::ios::in | std::ios::out);
         if (!ramFile->is_open())
         {
             std::cerr << "Error opening RAM file!" << std::endl;
@@ -252,14 +287,17 @@ public:
     {
         stackPointer--;
     }
-    void up_by(){
-        stackPointer+=bus;
+    void up_by()
+    {
+        stackPointer += bus;
     }
-    void down_by(){
-        stackPointer-=bus;
+    void down_by()
+    {
+        stackPointer -= bus;
     }
-    void stack_pointer_out(){
-        bus = 0xffff-stackPointer;
+    void stack_pointer_out()
+    {
+        bus = 0xffff - stackPointer;
     }
     void reset()
     {
@@ -313,6 +351,8 @@ public:
         if (regB.data != 0)
         {
             result = regA.data % regB.data;
+            if (result < 0)
+                result = -result;
             flags.zero = (result == 0);
         }
         else
@@ -448,8 +488,6 @@ public:
     }
 };
 
-class CPU;
-
 class ControlUnit
 {
 private:
@@ -465,7 +503,7 @@ private:
     Keyboard &keyboard;
     bool &halted;
     lancelot_word &bus, &marAlwaysOut;
-    
+
     void loadNextInstrucion()
     {
         programCounter.cnt_out();
@@ -990,13 +1028,14 @@ public:
 
         case 0x4B00:
             stack.stack_pointer_out();
+            regA.write();
             break;
 
         case 0x4C00:
             regD.read();
             stack.up_by();
             break;
-            
+
         case 0x4D00:
             regD.read();
             stack.down_by();
@@ -1116,8 +1155,13 @@ public:
     }
 };
 
-int main()
+int main(int argc , char *argv[])
 {
+    if(argc < 2){
+        std::cerr << "No program file specified. Usage: " << argv[0] << " <program_file>\n";
+        return 1;
+    }
+    programFileName = argv[1]; 
     CPU lancelot_m1;
     lancelot_m1.start();
     return 0;
