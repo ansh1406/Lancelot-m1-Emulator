@@ -2,12 +2,13 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <sstream>
 #include <iomanip>
-#include <conio.h>
 
 std::string programFileName;
 
 using lancelot_word = unsigned short int;
+bool useStdin = false, useStdout = false;
 
 class ProgramCounter
 {
@@ -155,15 +156,17 @@ private:
     const std::string ramTemplateFileName = "ram_template";
     const std::string ramFileName = "ram";
 
-    void loadProgram(){
-        std::ifstream programFile(programFileName,std::ios::binary);
+    void loadProgram()
+    {
+        std::ifstream programFile(programFileName, std::ios::binary);
         if (!programFile.is_open())
         {
             std::cerr << "Error opening program file!" << std::endl;
             return;
         }
         int currentAddress = 0;
-        while(!programFile.eof()){
+        while (!programFile.eof())
+        {
             char buffer[2];
             programFile.read(buffer, 2);
             std::string hexData;
@@ -445,6 +448,11 @@ public:
         char asciiChar = static_cast<char>(bus & 0x7F);
         if (asciiChar != 0)
         {
+            if (useStdout)
+            {
+                std::cout << asciiChar;
+                return;
+            }
             *ttyFile << asciiChar;
             ttyFile->flush();
         }
@@ -467,9 +475,15 @@ public:
             std::cerr << "Error opening keyboard file!" << std::endl;
         }
     }
-
     void read()
     {
+        if (useStdin)
+        {
+            char ch;
+            ch = getchar();
+            bus = static_cast<lancelot_word>(ch);
+            return;
+        }
         keyboardFile.clear();
         keyboardFile.seekg(keyBoardPointer, std::ios::beg);
         char ch;
@@ -484,6 +498,8 @@ public:
 
     void kb_reg_pop()
     {
+        if (useStdin)
+            return;
         keyBoardPointer++;
     }
 };
@@ -1155,13 +1171,34 @@ public:
     }
 };
 
-int main(int argc , char *argv[])
+int main(int argc, char *argv[])
 {
-    if(argc < 2){
+    if (argc < 2)
+    {
         std::cerr << "No program file specified. Usage: " << argv[0] << " <program_file>\n";
         return 1;
     }
-    programFileName = argv[1]; 
+    if(argc > 1 && std::string(argv[1]) == "--help")
+    {
+        std::cout << "Usage: " << argv[0] << " <program_file> [--stdin] [--stdout]\n";
+        std::cout << "Options:\n";
+        std::cout << "  --stdin   : Use standard input for keyboard input\n";
+        std::cout << "  --stdout  : Use standard output for tty output\n";
+        return 0;
+    }
+    for (int i = 2; i < argc; ++i)
+    {
+        std::string arg = argv[i];
+        if (arg == "--stdin")
+        {
+            useStdin = true;
+        }
+        if (arg == "--stdout")
+        {
+            useStdout = true;
+        }
+    }
+    programFileName = argv[1];
     CPU lancelot_m1;
     lancelot_m1.start();
     return 0;
