@@ -200,6 +200,13 @@ public:
     RAM(lancelot_word &bus, lancelot_word &marAlwaysOut) : bus(bus), marAlwaysOut(marAlwaysOut)
     {
         std::ifstream templateRamFile(ramTemplateFileName);
+        if(templateRamFile.fail())
+        {
+            std::cerr << "Error opening RAM template file!" << std::endl;
+            std::cerr << "Make sure the file '" << ramTemplateFileName << "' exists in the current directory." << std::endl;
+            std::cerr << "Download the template file from the Lancelot M1 Emulator repository." << std::endl;
+            exit(1);
+        }
         std::ofstream ramFile(ramFileName);
         if (!ramFile.is_open())
         {
